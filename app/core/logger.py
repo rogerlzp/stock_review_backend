@@ -19,17 +19,18 @@ LOG_FORMAT = (
 # 配置 loguru
 logger.remove()  # 删除默认处理器
 logger.add(
-    sys.stdout,
-    format=LOG_FORMAT,
-    level=settings.LOG_LEVEL,
-    colorize=True
+    "logs/app.log",
+    rotation="500 MB",
+    retention="10 days",
+    level="DEBUG",
+    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level} | {module}:{function}:{line} | {message}",
+    backtrace=True,
+    diagnose=True
 )
 logger.add(
-    LOG_PATH / "app.log",
-    format=LOG_FORMAT,
-    level=settings.LOG_LEVEL,
-    rotation="100 MB",
-    retention="14 days",
+    sink=sys.stdout,
+    level="DEBUG",
+    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level} | {module}:{function}:{line} | {message}"
 )
 
 # 配置 SQLAlchemy 日志
