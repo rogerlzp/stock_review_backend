@@ -1,0 +1,107 @@
+Stock Analysis Backend
+一个强大的股票市场分析后端系统，提供市场数据分析、技术指标计算和市场复盘等功能。
+功能特点
+🚀 实时市场数据分析
+📊 技术指标计算
+📈 市场趋势分析
+📝 每日市场复盘
+🔍 个股深度分析
+💹 板块资金流向
+🎯 龙虎榜数据分析
+技术栈
+FastAPI
+PostgreSQL
+SQLAlchemy
+Pandas
+Python 3.8+
+项目结构
+stock-analysis-backend/
+├── app/
+│   ├── api/
+│   │   └── v1/
+│   │       ├── api.py
+│   │       └── endpoints/
+│   │           ├── basic.py
+│   │           ├── index.py
+│   │           ├── market_review.py
+│   │           └── stock.py
+│   ├── core/
+│   │   ├── config.py
+│   │   └── security.py
+│   ├── database/
+│   │   └── session.py
+│   ├── models/
+│   │   └── stock.py
+│   └── schemas/
+│       └── stock.py
+├── tests/
+├── alembic/
+├── requirements.txt
+└── README.md
+
+API 文档
+市场复盘相关接口
+1. 市场概览
+GET /api/v1/market-review/market-overview/{trade_date}
+2. 板块资金流向
+GET /api/v1/market-review/sector-flow/{trade_date}
+3. 龙虎榜数据
+GET /api/v1/market-review/top-list/{trade_date}
+4. 概念题材数据
+GET /api/v1/market-review/concepts/{trade_date}
+5. 涨停板分析
+GET /api/v1/market-review/limit-up-stocks/{trade_date}
+6. 技术指标分析
+GET /api/v1/market-review/technical-indicators/{trade_date}
+7. 每日复盘
+GET /api/v1/market-review/daily-review/{trade_date}
+
+
+快速开始
+1. 克隆项目
+git clone https://github.com/your-repo/stock-analysis-backend.git
+2. 安装依赖
+pip install -r requirements.txt
+3. 配置环境变量 
+cp .env.example .env
+# 编辑 .env 文件，设置必要的环境变量
+4. 配置数据库
+在 app/core/config.py 中配置数据库连接信息
+5. 运行项目
+uvicorn main:app --reload
+
+
+开发指南
+代码风格
+遵循 PEP 8 规范
+使用 Black 进行代码格式化
+使用 isort 进行导入排序
+提交规范
+feat: 新功能
+fix: 修复问题
+docs: 文档修改
+style: 代码格式修改
+refactor: 代码重构
+test: 测试用例修改
+chore: 其他修改
+
+部署
+1. 使用 Docker 部署
+docker-compose up -d
+
+2. 传统部署
+gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker
+
+
+贡献指南
+Fork 本仓库
+创建特性分支
+提交变更
+推送到分支
+创建 Pull Request
+许可证
+MIT License
+联系方式
+作者：Your Name
+邮箱：your.email@example.com
+项目地址：https://github.com/yourusername/stock-analysis-backend
