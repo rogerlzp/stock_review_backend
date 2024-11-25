@@ -278,7 +278,7 @@ class MarketReviewService:
                         "close": float(row['close']) if pd.notnull(row['close']) else 0.0,
                         "change": float(row['pct_change']) if pd.notnull(row['pct_change']) else 0.0,
                         "turnoverRate": float(row['turnover_rate']) if pd.notnull(row['turnover_rate']) else 0.0,
-                        "amount": float(row['amount'] / 100000000) if pd.notnull(row['amount']) else 0.0,
+                        "amount": float(row['amount'] / 100000000),
                         "reason": str(row['reason']) if pd.notnull(row['reason']) else "",
                         "buyAmount": float(buy_amount / 100000000),
                         "sellAmount": float(sell_amount / 100000000),
@@ -338,8 +338,8 @@ class MarketReviewService:
             """
             logger.debug("Executing SQL: {}", sql)
             logger.debug("Parameters: {}", {'trade_date': trade_date})
-            
-            df = pd.read_sql(sql, engine, params={'trade_date': trade_date})
+            params = {'trade_date': trade_date}
+            df = pd.read_sql(sql, engine,params=params)
             logger.debug("Query result shape: {}", df.shape)
             
             if df.empty:
@@ -528,41 +528,26 @@ class MarketReviewService:
             raise Exception(f"Error generating daily review: {str(e)}")
 
     @staticmethod
-    async def get_concept_stocks(trade_date: str, concept_name: str) -> List[Dict[str, Any]]:
+    async def get_concept_stocks(trade_date: str, code: str) -> List[Dict[str, Any]]:
         """获取概念成分股数据"""
-        logger.info("Getting concept stocks for date: {} concept: {}", trade_date, concept_name)
+        logger.info("Getting concept stocks for date: {} concept code: {}", trade_date, code)
         try:
-            # 1. 先获取概念的 ts_code
-            concept_sql = """
-            SELECT ts_code
-            FROM kpl_concept
-            WHERE trade_date = %(trade_date)s AND name = %(concept_name)s
-            LIMIT 1
-            """
-            
-            params = {
-                'trade_date': trade_date,
-                'concept_name': concept_name
-            }
-            
-            # 获取概念代码
-            df_concept = pd.read_sql(concept_sql, engine, params=params)
-            if df_concept.empty:
-                logger.warning("No concept found for name: {}", concept_name)
-                return []
-            
-            concept_code = df_concept['ts_code'].iloc[0]
-            logger.debug("Found concept code: {}", concept_code)
-            
-            # 2. 使用概念代码查询成分股
+            # 直接使用概念代码查询成分股
             stocks_sql = """
             WITH concept_stocks AS (
-                SELECT cons_code
+                SELECT DISTINCT cons_code  -- 添加 DISTINCT 去重
                 FROM kpl_concept_cons
                 WHERE trade_date = %(trade_date)s AND ts_code = %(concept_code)s
             )
-            SELECT 
-                l.*
+            SELECT DISTINCT  -- 添加 DISTINCT 去重
+                l.ts_code,
+                l.name,
+                l.pct_chg,
+                l.amount,
+                l.turnover_rate,
+                l.status,
+                l.lu_time,
+                l.lu_desc
             FROM kpl_list l
             JOIN concept_stocks cs ON l.ts_code = cs.cons_code
             WHERE l.trade_date = %(trade_date)s
@@ -571,7 +556,7 @@ class MarketReviewService:
             
             params = {
                 'trade_date': trade_date,
-                'concept_code': concept_code
+                'concept_code': code
             }
             
             df = pd.read_sql(stocks_sql, engine, params=params)

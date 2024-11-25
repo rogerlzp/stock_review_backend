@@ -24,6 +24,7 @@ var/
 venv/
 ENV/
 .env
+windsurf_venv/
 
 # IDE
 .idea/
@@ -40,4 +41,4 @@ logs/
 *.db
 
 # Cache
-.cache/ 
+.cache/
