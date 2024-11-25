@@ -9,6 +9,7 @@
 - 龙虎榜数据
 - 概念题材分析
 - 涨停板分析
+- 技术分析指标
 
 ## 数据结构
 
@@ -69,6 +70,28 @@
    - limitUpReason: 涨停原因
    - turnoverRate: 换手率
    - amount: 成交额
+
+6. TechnicalAnalysis (技术分析数据)
+   - trend: 趋势分析
+     - short_term: 短期趋势
+     - medium_term: 中期趋势
+     - long_term: 长期趋势
+     - ma_cross: 均线交叉信号
+   - macd: MACD分析
+     - trend: MACD趋势
+     - divergence: MACD差值
+   - kdj: KDJ分析
+     - k: K值
+     - d: D值
+     - j: J值
+     - signal: 超买超卖信号
+   - rsi: RSI分析
+     - rsi6: 6日RSI
+     - rsi12: 12日RSI
+     - rsi24: 24日RSI
+   - volatility: 波动率分析
+     - value: 波动率值
+     - trend: 波动趋势
 
 ## 技术栈
 

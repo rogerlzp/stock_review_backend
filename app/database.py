@@ -15,8 +15,16 @@ try:
         settings.DATABASE_URL,
         pool_size=5,
         max_overflow=10,
-        pool_timeout=30,
+        pool_timeout=60,  # 增加超时时间
         pool_recycle=1800,
+        pool_pre_ping=True,  # 添加连接检查
+        connect_args={
+            'connect_timeout': 10,
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 5
+        },
         echo=True  # 启用 SQL 日志
     )
     

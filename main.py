@@ -18,13 +18,17 @@ async def log_requests(request, call_next):
     logger.info(f"Response: {response.status_code}")
     return response
 
+# 配置CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册路由
+app.include_router(api_router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def startup():
@@ -34,8 +38,6 @@ async def startup():
     except Exception as e:
         logger.error(f"Error creating database tables: {str(e)}")
         raise
-
-app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
