@@ -23,3 +23,27 @@ class StockBasicResponse(BaseModel):
     
     class Config:
         orm_mode = True
+
+
+class LimitListResponse(BaseModel):
+    trade_date: str
+    ts_code: str
+    industry: Optional[str] = None
+    name: str
+    close: float
+    pct_chg: float
+    amount: float
+    limit_amount: Optional[float] = None
+    float_mv: float
+    total_mv: float
+    turnover_ratio: float
+    fd_amount: Optional[float] = None
+    first_time: Optional[str] = None
+    last_time: Optional[str] = None
+    open_times: int
+    up_stat: Optional[str] = None
+    limit_times: int
+    limit: str
+
+    class Config:
+        orm_mode = True

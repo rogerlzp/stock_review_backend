@@ -1,10 +1,12 @@
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
-from typing import List
+from datetime import date
 from app.models.stock import StockBasic
-from app.database import get_db
-from app.schemas.stock import StockBasicResponse
+from app.models.limit_list import LimitList
+from app.core.database import get_db
+from app.schemas.stock import StockBasicResponse, LimitListResponse
+from sqlalchemy import or_
 
 router = APIRouter()
 
@@ -24,4 +26,16 @@ async def search_stocks(query: str, db: Session = Depends(get_db)):
         )
     ).limit(10).all()
     
+    return stocks
+
+@router.get("/limit_list", response_model=List[LimitListResponse])
+async def get_limit_list(
+    limit_times: Optional[int] = None,
+    up_stat: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    获取符合连板次数和涨停统计的股票列表
+    """
+    stocks = LimitList.filter_by_criteria(db, limit_times, up_stat)
     return stocks

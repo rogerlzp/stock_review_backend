@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import api_router
-from app.database import engine, Base
+from app.core.database import engine, Base
 from app.core.logger import logger
 
 app = FastAPI(
@@ -28,7 +28,7 @@ app.add_middleware(
 )
 
 # 注册路由
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(api_router, prefix="/api/v1")  # 修改这里，恢复 /api 前缀
 
 @app.on_event("startup")
 async def startup():
@@ -41,4 +41,4 @@ async def startup():
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Stock Analysis Backend"} 
+    return {"message": "Welcome to Stock Analysis Backend"}

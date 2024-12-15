@@ -70,6 +70,10 @@
    - limitUpReason: 涨停原因
    - turnoverRate: 换手率
    - amount: 成交额
+   - bidAmount: 封单金额
+   - bidTurnover: 封单比例
+   - limitTimes: 连板数
+   - status: 涨停状态（涨停、炸板）
 
 6. TechnicalAnalysis (技术分析数据)
    - trend: 趋势分析
@@ -156,3 +160,82 @@ start.bat
 启动服务后访问：
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
+
+## 涨停板分析功能
+
+涨停板分析模块提供了全面的涨停板数据分析功能，包括：
+
+### 涨停板统计
+- 首板、二板、三板及以上数量统计
+- 行业和概念板块涨停分布
+- 涨停原因分类统计
+- 打板成功率分析
+
+### 连板股追踪
+- 连板天数统计
+- 连板期间成交量变化
+- 封单金额和封单比例
+- 开板次数统计
+
+### 个股详细分析
+- 基本交易数据（开盘、最高、最低、收盘价等）
+- 涨停时间和涨停原因
+- 30日成交量分析（用于识别放量情况）
+- 连板历史记录（包括每日成交量和换手率）
+
+## API路由说明
+
+所有API路由都以 `/api/v1` 为前缀，按功能模块组织：
+
+### 市场分析接口
+
+#### 市场概览
+- GET `/market/overview/{trade_date}` - 获取市场概览数据
+  - 返回：指数行情、市场资金、涨跌统计等
+
+#### 板块资金流向
+- GET `/market/sector-flow/{trade_date}` - 获取板块资金流向
+  - 返回：行业板块和概念板块的资金流向数据
+
+#### 龙虎榜
+- GET `/market/top-list/{trade_date}` - 获取龙虎榜数据
+  - 返回：个股龙虎榜、机构交易等信息
+
+#### 涨停分析
+- GET `/market/limit-analysis/{trade_date}` - 获取涨停板分析
+  - 返回：涨停统计、行业分布、最强个股等
+- GET `/market/limit-up` - 获取涨停板数据
+  - 参数：
+    - trade_date: 交易日期（YYYYMMDD）
+    - limit_times: 连板数筛选
+    - up_stat: 涨停统计筛选（如：3/4表示4天3板）
+
+#### 股票详情
+- GET `/stock/detail/{ts_code}` - 获取股票详细信息
+  - 参数：
+    - trade_date: 交易日期（YYYYMMDD）
+  - 返回：基本信息、交易数据、涨停信息等
+
+- GET `/stock/limit-history/{ts_code}` - 获取连板历史
+  - 参数：
+    - trade_date: 交易日期（YYYYMMDD）
+  - 返回：连板期间的每日交易数据
+
+- GET `/stock/volume-analysis/{ts_code}` - 获取成交量分析
+  - 参数：
+    - trade_date: 交易日期（YYYYMMDD）
+  - 返回：30日成交量和价格走势数据
+
+### 技术指标接口
+- GET `/market/technical/{trade_date}` - 获取技术指标数据
+  - 返回：市场技术指标分析数据
+
+### 概念分析接口
+- GET `/market/concepts/{trade_date}` - 获取概念题材数据
+  - 返回：概念热度、资金流向等数据
+
+所有接口都支持以下特性：
+- 统一的错误处理和响应格式
+- 请求参数验证
+- 详细的日志记录
+- CORS支持

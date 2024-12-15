@@ -1,9 +1,10 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import date
-from app.database import engine
+from app.core.database import engine
 import pandas as pd
 import numpy as np
 from loguru import logger
+from sqlalchemy import text
 
 class MarketReviewService:
     @staticmethod
@@ -48,7 +49,7 @@ class MarketReviewService:
                 pe_ttm,
                 pb
             FROM index_dailybasic
-            WHERE trade_date = %(trade_date)s 
+            WHERE trade_date = :trade_date 
             AND ts_code IN (
                 '000001.SH',  -- 上证指数
                 '399001.SZ',  -- 深证成指
@@ -100,11 +101,11 @@ class MarketReviewService:
                 COUNT(CASE WHEN pct_chg < 0 THEN 1 END) as down_count,
                 SUM(amount) / 100000 as total_amount  -- amount单位是千元，除以100000转换为亿元
             FROM stock_daily
-            WHERE trade_date = %(trade_date)s
+            WHERE trade_date = :trade_date
             AND (
-                ts_code LIKE %(code_prefix_1)s 
-                OR ts_code LIKE %(code_prefix_2)s 
-                OR ts_code LIKE %(code_prefix_3)s
+                ts_code LIKE :code_prefix_1 
+                OR ts_code LIKE :code_prefix_2 
+                OR ts_code LIKE :code_prefix_3
             )
             """
             stock_params = {
@@ -154,7 +155,7 @@ class MarketReviewService:
                 buy_sm_amount_stock,
                 rank
             FROM moneyflow_ind_dc
-            WHERE trade_date = %(trade_date)s
+            WHERE trade_date = :trade_date
             ORDER BY net_amount DESC
             """
             logger.debug("Executing SQL: {}", sql)
@@ -213,7 +214,7 @@ class MarketReviewService:
                 net_rate,
                 net_amount
             FROM top_list 
-            WHERE trade_date = %(trade_date)s
+            WHERE trade_date = :trade_date
             """
             
             # 2. 获取机构交易数据
@@ -228,7 +229,7 @@ class MarketReviewService:
                 sell_rate,
                 net_buy
             FROM top_inst
-            WHERE trade_date = %(trade_date)s
+            WHERE trade_date = :trade_date
             ORDER BY CASE 
                 WHEN side = 0 THEN buy 
                 ELSE sell 
@@ -305,64 +306,77 @@ class MarketReviewService:
             raise
 
     @staticmethod
-    async def get_limit_up(trade_date: str) -> List[Dict[str, Any]]:
-        """获取涨停板数据"""
-        logger.info("Getting limit up data for date: {}", trade_date)
+    async def get_limit_up(
+        trade_date: str,
+        limit_times: Optional[int] = None,
+        up_stat: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """获取涨停板数据，支持连板和涨停统计过滤"""
+        logger.info("Getting limit up data for date: {} with filters: limit_times={}, up_stat={}", 
+                   trade_date, limit_times, up_stat)
         try:
-            sql = """
-            SELECT 
-                ts_code,
-                name,
-                lu_time,
-                open_time,
-                last_time,
-                lu_desc,
-                theme,
-                net_change,
-                status,
-                turnover_rate,
-                lu_limit_order,
-                bid_amount,
-                bid_turnover,
-                amount,
-                free_float
-            FROM kpl_list
-            WHERE trade_date = %(trade_date)s
-            AND lu_time IS NOT NULL
-            ORDER BY 
-                CASE 
-                    WHEN status LIKE '%连板%' THEN 1
-                    ELSE 2
-                END,
-                lu_time
-            """
-            logger.debug("Executing SQL: {}", sql)
-            logger.debug("Parameters: {}", {'trade_date': trade_date})
-            params = {'trade_date': trade_date}
-            df = pd.read_sql(sql, engine,params=params)
-            logger.debug("Query result shape: {}", df.shape)
+            sql = text("""
+            SELECT DISTINCT 
+                l.ts_code,
+                l.name,
+                l.trade_date,
+                l.limit_times,
+                COALESCE(k.lu_time, '') as lu_time,
+                COALESCE(k.open_time, '') as open_time,
+                COALESCE(k.last_time, '') as last_time,
+                COALESCE(k.lu_desc, '') as lu_desc,
+                COALESCE(k.theme, '') as theme,
+                COALESCE(k.net_change, 0) as net_change,
+                COALESCE(k.status, '') as status,
+                COALESCE(k.turnover_rate, 0) as turnover_rate,
+                COALESCE(k.amount, 0) as amount,
+                COALESCE(k.bid_amount, 0) as bid_amount,
+                COALESCE(k.bid_turnover, 0) as bid_turnover,
+                COALESCE(k.free_float, 0) as free_float,
+                l.up_stat
+            FROM limit_list_d l
+            LEFT JOIN kpl_list k ON l.ts_code = k.ts_code AND l.trade_date = k.trade_date
+            WHERE l.trade_date = :trade_date and k.tag ='涨停' and l.limit_status = 'U'
+            """ + (" AND l.limit_times >= :limit_times" if limit_times else "") + 
+            (" AND l.up_stat = :up_stat" if up_stat else "") + """
+            ORDER BY l.limit_times DESC, lu_time
+            """)
             
-            if df.empty:
-                logger.warning("No limit up data found for date: {}", trade_date)
+            params = {"trade_date": trade_date}
+            if limit_times:
+                params["limit_times"] = limit_times
+            if up_stat:
+                params["up_stat"] = up_stat
+                
+            logger.info("Executing SQL with params: {}", params)
+            
+            with engine.connect() as conn:
+                result = conn.execute(sql, params)
+                rows = result.fetchall()
+            
+            if not rows:
+                logger.warning("No limit up data found for date: {} with filters", trade_date)
                 return []
             
             # 处理数据
             result = []
-            for _, row in df.iterrows():
+            for row in rows:
                 try:
                     processed_row = {
-                        "stockCode": str(row['ts_code']),
-                        "stockName": str(row['name']) if pd.notnull(row['name']) else "",
-                        "limitUpTime": str(row['lu_time']) if pd.notnull(row['lu_time']) else "",
-                        "limitUpReason": str(row['lu_desc']) if pd.notnull(row['lu_desc']) else "",
-                        "turnoverRate": float(row['turnover_rate']) if pd.notnull(row['turnover_rate']) else 0.0,
-                        "amount": float(row['amount']) if pd.notnull(row['amount']) else 0.0,
-                        "status": str(row['status']) if pd.notnull(row['status']) else "",
-                        "theme": str(row['theme']) if pd.notnull(row['theme']) else "",
-                        "netChange": float(row['net_change']) if pd.notnull(row['net_change']) else 0.0,
-                        "bidAmount": float(row['bid_amount']) if pd.notnull(row['bid_amount']) else 0.0,
-                        "bidTurnover": float(row['bid_turnover']) if pd.notnull(row['bid_turnover']) else 0.0,
-                        "freeFloat": float(row['free_float']) if pd.notnull(row['free_float']) else 0.0
+                        "stockCode": str(row.ts_code),
+                        "stockName": str(row.name) if row.name else "",
+                        "limitUpTime": str(row.lu_time) if row.lu_time else "",
+                        "limitUpReason": str(row.lu_desc) if row.lu_desc else "",
+                        "turnoverRate": MarketReviewService.process_float(row.turnover_rate),
+                        "amount": MarketReviewService.process_float(row.amount),
+                        "status": str(row.status) if row.status else "",
+                        "theme": str(row.theme) if row.theme else "",
+                        "netChange": MarketReviewService.process_float(row.net_change),
+                        "bidAmount": MarketReviewService.process_float(row.bid_amount),
+                        "bidTurnover": MarketReviewService.process_float(row.bid_turnover),
+                        "freeFloat": MarketReviewService.process_float(row.free_float),
+                        "limitTimes": int(row.limit_times) if row.limit_times else 0,
+                        "upStat": str(row.up_stat) if row.up_stat else ""
                     }
                     result.append(processed_row)
                     logger.debug("Successfully processed limit up row")
@@ -407,10 +421,10 @@ class MarketReviewService:
                 amount,
                 turnover_rate
             FROM stk_factor_pro
-            WHERE trade_date = %(trade_date)s
+            WHERE trade_date = :trade_date
             AND ts_code IN (
                 SELECT ts_code FROM top_list 
-                WHERE trade_date = %(trade_date)s
+                WHERE trade_date = :trade_date
             )
             """
             logger.debug(f"Executing SQL: {sql}")
@@ -436,7 +450,7 @@ class MarketReviewService:
                 z_t_num,
                 up_num
             FROM kpl_concept
-            WHERE trade_date = %(trade_date)s
+            WHERE trade_date = :trade_date
             """
             
             logger.debug("Executing base SQL: {}", base_sql)
@@ -459,7 +473,7 @@ class MarketReviewService:
                 MAX(hot_num) as hot_num,
                 MAX(description) as description
             FROM kpl_concept_cons
-            WHERE trade_date = %(trade_date)s
+            WHERE trade_date = :trade_date
             GROUP BY ts_code
             """
             
@@ -535,11 +549,11 @@ class MarketReviewService:
             # 直接使用概念代码查询成分股
             stocks_sql = """
             WITH concept_stocks AS (
-                SELECT DISTINCT cons_code  -- 添加 DISTINCT 去重
+                SELECT DISTINCT cons_code  
                 FROM kpl_concept_cons
-                WHERE trade_date = %(trade_date)s AND ts_code = %(concept_code)s
+                WHERE trade_date = :trade_date AND ts_code = :concept_code
             )
-            SELECT DISTINCT  -- 添加 DISTINCT 去重
+            SELECT DISTINCT  
                 l.ts_code,
                 l.name,
                 l.pct_chg,
@@ -550,7 +564,7 @@ class MarketReviewService:
                 l.lu_desc
             FROM kpl_list l
             JOIN concept_stocks cs ON l.ts_code = cs.cons_code
-            WHERE l.trade_date = %(trade_date)s
+            WHERE l.trade_date = :trade_date
             ORDER BY l.pct_chg DESC
             """
             
@@ -584,4 +598,153 @@ class MarketReviewService:
         except Exception as e:
             logger.error("Error getting concept stocks: {}", str(e))
             logger.error("Full traceback:", exc_info=True)
+            raise
+
+    @staticmethod
+    async def get_stock_detail(ts_code: str, trade_date: str) -> Dict[str, Any]:
+        """获取股票详情信息"""
+        try:
+            sql = text("""
+            SELECT 
+                l.ts_code,
+                l.name,
+                l.lu_time,
+                l.lu_desc,
+                l.limit_times,
+                l.status,
+                l.theme,
+                k.open as open_price,
+                k.high as high_price,
+                k.low as low_price,
+                k.close as close_price,
+                k.vol as volume,
+                k.amount,
+                k.turnover_rate,
+                k.bid_amount,
+                k.bid_turnover
+            FROM limit_list_d l
+            LEFT JOIN kpl_list k ON l.ts_code = k.ts_code AND l.trade_date = k.trade_date
+            WHERE l.ts_code = :ts_code AND l.trade_date = :trade_date
+            """)
+            
+            with engine.connect() as conn:
+                result = conn.execute(sql, {"ts_code": ts_code, "trade_date": trade_date})
+                row = result.fetchone()
+                
+            if not row:
+                return {}
+                
+            return {
+                "stockCode": str(row.ts_code),
+                "stockName": str(row.name) if row.name else "",
+                "limitUpTime": str(row.lu_time) if row.lu_time else "",
+                "limitUpReason": str(row.lu_desc) if row.lu_desc else "",
+                "limitTimes": int(row.limit_times) if row.limit_times else 0,
+                "status": str(row.status) if row.status else "",
+                "theme": str(row.theme) if row.theme else "",
+                "openPrice": MarketReviewService.process_float(row.open_price),
+                "highPrice": MarketReviewService.process_float(row.high_price),
+                "lowPrice": MarketReviewService.process_float(row.low_price),
+                "closePrice": MarketReviewService.process_float(row.close_price),
+                "volume": MarketReviewService.process_float(row.volume),
+                "amount": MarketReviewService.process_float(row.amount),
+                "turnoverRate": MarketReviewService.process_float(row.turnover_rate),
+                "bidAmount": MarketReviewService.process_float(row.bid_amount),
+                "bidTurnover": MarketReviewService.process_float(row.bid_turnover)
+            }
+        except Exception as e:
+            logger.error("Error getting stock detail: {}", str(e))
+            raise
+
+    @staticmethod
+    async def get_limit_history(ts_code: str, trade_date: str) -> List[Dict[str, Any]]:
+        """获取连板历史数据"""
+        try:
+            # 首先获取当前的连板数
+            limit_times_sql = text("""
+            SELECT limit_times 
+            FROM limit_list_d 
+            WHERE ts_code = :ts_code AND trade_date = :trade_date
+            """)
+            
+            with engine.connect() as conn:
+                result = conn.execute(limit_times_sql, {"ts_code": ts_code, "trade_date": trade_date})
+                row = result.fetchone()
+                
+            if not row or not row.limit_times:
+                return []
+                
+            limit_times = row.limit_times
+            
+            # 获取最近limit_times天的交易数据
+            history_sql = text("""
+            SELECT 
+                k.trade_date,
+                k.vol as volume,
+                k.amount,
+                k.turnover_rate
+            FROM kpl_list k
+            WHERE k.ts_code = :ts_code 
+            AND k.trade_date <= :trade_date
+            ORDER BY k.trade_date DESC
+            LIMIT :limit_times
+            """)
+            
+            with engine.connect() as conn:
+                result = conn.execute(history_sql, {
+                    "ts_code": ts_code, 
+                    "trade_date": trade_date,
+                    "limit_times": limit_times
+                })
+                rows = result.fetchall()
+            
+            return [{
+                "date": row.trade_date,
+                "volume": MarketReviewService.process_float(row.volume),
+                "amount": MarketReviewService.process_float(row.amount),
+                "turnoverRate": MarketReviewService.process_float(row.turnover_rate)
+            } for row in rows]
+            
+        except Exception as e:
+            logger.error("Error getting limit history: {}", str(e))
+            raise
+
+    @staticmethod
+    async def get_volume_analysis(ts_code: str, trade_date: str) -> Dict[str, Any]:
+        """获取30日成交量分析数据"""
+        try:
+            sql = text("""
+            SELECT 
+                trade_date,
+                vol as volume,
+                close as price
+            FROM kpl_list
+            WHERE ts_code = :ts_code 
+            AND trade_date <= :trade_date
+            ORDER BY trade_date DESC
+            LIMIT 30
+            """)
+            
+            with engine.connect() as conn:
+                result = conn.execute(sql, {"ts_code": ts_code, "trade_date": trade_date})
+                rows = result.fetchall()
+            
+            if not rows:
+                return {
+                    "dates": [],
+                    "volumes": [],
+                    "prices": []
+                }
+            
+            # 反转数据以按时间正序显示
+            rows = rows[::-1]
+            
+            return {
+                "dates": [row.trade_date for row in rows],
+                "volumes": [MarketReviewService.process_float(row.volume) for row in rows],
+                "prices": [MarketReviewService.process_float(row.price) for row in rows]
+            }
+            
+        except Exception as e:
+            logger.error("Error getting volume analysis: {}", str(e))
             raise
