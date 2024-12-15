@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     CACHE_EXPIRE: int = 3600  # 缓存过期时间（秒）
 
     # 日志配置
-    LOG_LEVEL: str = "INFO"
+    LOG_LEVEL: str = "DEBUG"
 
     class Config:
         env_file = ".env"
