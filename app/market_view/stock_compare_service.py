@@ -8,131 +8,135 @@ class StockCompareService:
     def __init__(self, db: Session = None):
         self.db = next(get_db()) if db is None else db
 
-    @staticmethod
-    def get_stock_comparison(
-        base_stock: str,
-        compare_stocks: List[str],
-        start_date: str,
-        end_date: str
-    ) -> Dict[str, Any]:
-        """获取多只股票的对比数据"""
+    @classmethod
+    def get_stock_info(cls, ts_code: str):
+        """获取股票基本信息"""
         db = next(get_db())
+        stock_info_query = text("""
+            SELECT ts_code, name, industry, market
+            FROM stock_basic 
+            WHERE ts_code = :ts_code
+        """)
+        stock_info_row = db.execute(stock_info_query, {"ts_code": ts_code}).fetchone()
+        stock_info = {
+            "ts_code": stock_info_row.ts_code,
+            "name": stock_info_row.name,
+            "industry": stock_info_row.industry,
+            "market": stock_info_row.market
+        }
+        return stock_info
+
+    @classmethod
+    def get_stock_comparison(cls, ts_code: str, compare_codes: List[str], start_date: str, end_date: str):
+        """获取股票对比数据"""
         try:
-            # 查询股票日线数据的SQL
-            daily_query = text("""
-                SELECT trade_date, open, high, low, close, vol as volume, amount, pct_chg
-                FROM stock_daily
-                WHERE ts_code = :ts_code 
-                AND trade_date BETWEEN :start_date AND :end_date
-                ORDER BY trade_date ASC
-            """)
-
-            # 查询涨跌停数据的SQL
-            limit_query = text("""
-                SELECT l.trade_date, k.lu_time, k.ld_time, k.status
-                FROM limit_list_d l
-                LEFT JOIN kpl_list k ON l.ts_code = k.ts_code AND l.trade_date = k.trade_date
-                WHERE l.ts_code = :ts_code 
-                AND l.trade_date BETWEEN :start_date AND :end_date
-                ORDER BY l.trade_date ASC
-            """)
-
-            # 查询股票基本信息的SQL
-            stock_info_query = text("""
-                SELECT ts_code, name, industry, market
-                FROM stock_basic 
-                WHERE ts_code = :ts_code
-            """)
-
-            # 获取基准股票数据
-            base_daily = pd.DataFrame(
-                db.execute(
-                    daily_query,
-                    {"ts_code": base_stock, "start_date": start_date, "end_date": end_date}
-                ).fetchall(),
-                columns=['trade_date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg']
-            )
-            base_limit = pd.DataFrame(
-                db.execute(
-                    limit_query,
-                    {"ts_code": base_stock, "start_date": start_date, "end_date": end_date}
-                ).fetchall(),
-                columns=['trade_date', 'lu_time', 'ld_time', 'status']
-            )
+            db = next(get_db())
             
-            # 获取基准股票信息
-            base_info_row = db.execute(
-                stock_info_query,
-                {"ts_code": base_stock}
-            ).fetchone()
-            base_info = {
-                "ts_code": base_info_row.ts_code,
-                "name": base_info_row.name,
-                "industry": base_info_row.industry,
-                "market": base_info_row.market
-            }
+            # 基准股票数据
+            base_stock = cls.get_stock_info(ts_code)
+            base_daily = db.execute(
+                text("""
+                    SELECT d.trade_date, d.open, d.high, d.low, d.close, 
+                           d.vol, d.amount, d.pct_chg,
+                           f.turnover_rate_f, f.volume_ratio, 
+                           f.brar_ar_bfq, f.brar_br_bfq, f.psy_bfq, f.psyma_bfq
+                    FROM stock_daily d
+                    LEFT JOIN stk_factor_pro f ON d.ts_code = f.ts_code AND d.trade_date = f.trade_date
+                    WHERE d.ts_code = :ts_code 
+                    AND d.trade_date BETWEEN :start_date AND :end_date
+                    ORDER BY d.trade_date
+                """),
+                {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+            ).fetchall()
 
             # 计算基准股票的相对涨跌幅
-            if not base_daily.empty:
-                base_daily['relative_chg'] = (base_daily['close'] / base_daily['close'].iloc[0] - 1) * 100
-
-            # 获取所有对比股票的数据
-            compare_data = []
-            for ts_code in compare_stocks:
-                daily_df = pd.DataFrame(
-                    db.execute(
-                        daily_query,
-                        {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
-                    ).fetchall(),
-                    columns=['trade_date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg']
-                )
-                limit_df = pd.DataFrame(
-                    db.execute(
-                        limit_query,
-                        {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
-                    ).fetchall(),
-                    columns=['trade_date', 'lu_time', 'ld_time', 'status']
-                )
-                
-                # 获取对比股票信息
-                stock_info_row = db.execute(
-                    stock_info_query,
-                    {"ts_code": ts_code}
-                ).fetchone()
-                stock_info = {
-                    "ts_code": stock_info_row.ts_code,
-                    "name": stock_info_row.name,
-                    "industry": stock_info_row.industry,
-                    "market": stock_info_row.market
+            base_daily_list = []
+            base_price = None
+            for row in base_daily:
+                daily_dict = {
+                    "trade_date": row.trade_date,
+                    "open": float(row.open),
+                    "high": float(row.high),
+                    "low": float(row.low),
+                    "close": float(row.close),
+                    "volume": float(row.vol),
+                    "amount": float(row.amount),
+                    "pct_chg": float(row.pct_chg),
+                    "turnover_rate": float(row.turnover_rate_f) if row.turnover_rate_f else None,
+                    "volume_ratio": float(row.volume_ratio) if row.volume_ratio else None,
+                    "brar_ar": float(row.brar_ar_bfq) if row.brar_ar_bfq else None,
+                    "brar_br": float(row.brar_br_bfq) if row.brar_br_bfq else None,
+                    "psy": float(row.psy_bfq) if row.psy_bfq else None,
+                    "psyma": float(row.psyma_bfq) if row.psyma_bfq else None
                 }
+                
+                if base_price is None:
+                    base_price = daily_dict["close"]
+                    daily_dict["relative_chg"] = 0
+                else:
+                    daily_dict["relative_chg"] = (daily_dict["close"] - base_price) / base_price * 100
+                
+                base_daily_list.append(daily_dict)
 
-                # 计算相对涨跌幅
-                if not daily_df.empty:
-                    daily_df['relative_chg'] = (daily_df['close'] / daily_df['close'].iloc[0] - 1) * 100
+            base_stock["daily"] = base_daily_list
+            base_stock["limit"] = []
 
-                compare_data.append({
-                    "ts_code": stock_info["ts_code"],
-                    "name": stock_info["name"],
-                    "industry": stock_info["industry"],
-                    "market": stock_info["market"],
-                    "daily": daily_df.to_dict('records'),
-                    "limit": limit_df.to_dict('records')
-                })
+            # 获取对比股票数据
+            compare_stocks = []
+            for compare_code in compare_codes:
+                compare_stock = cls.get_stock_info(compare_code)
+                compare_daily = db.execute(
+                    text("""
+                        SELECT d.trade_date, d.open, d.high, d.low, d.close, 
+                               d.vol, d.amount, d.pct_chg,
+                               f.turnover_rate_f, f.volume_ratio, 
+                               f.brar_ar_bfq, f.brar_br_bfq, f.psy_bfq, f.psyma_bfq
+                        FROM stock_daily d
+                        LEFT JOIN stk_factor_pro f ON d.ts_code = f.ts_code AND d.trade_date = f.trade_date
+                        WHERE d.ts_code = :ts_code 
+                        AND d.trade_date BETWEEN :start_date AND :end_date
+                        ORDER BY d.trade_date
+                    """),
+                    {"ts_code": compare_code, "start_date": start_date, "end_date": end_date}
+                ).fetchall()
+
+                compare_daily_list = []
+                compare_price = None
+                for row in compare_daily:
+                    daily_dict = {
+                        "trade_date": row.trade_date,
+                        "open": float(row.open),
+                        "high": float(row.high),
+                        "low": float(row.low),
+                        "close": float(row.close),
+                        "volume": float(row.vol),
+                        "amount": float(row.amount),
+                        "pct_chg": float(row.pct_chg),
+                        "turnover_rate": float(row.turnover_rate_f) if row.turnover_rate_f else None,
+                        "volume_ratio": float(row.volume_ratio) if row.volume_ratio else None,
+                        "brar_ar": float(row.brar_ar_bfq) if row.brar_ar_bfq else None,
+                        "brar_br": float(row.brar_br_bfq) if row.brar_br_bfq else None,
+                        "psy": float(row.psy_bfq) if row.psy_bfq else None,
+                        "psyma": float(row.psyma_bfq) if row.psyma_bfq else None
+                    }
+                    
+                    if compare_price is None:
+                        compare_price = daily_dict["close"]
+                        daily_dict["relative_chg"] = 0
+                    else:
+                        daily_dict["relative_chg"] = (daily_dict["close"] - compare_price) / compare_price * 100
+                    
+                    compare_daily_list.append(daily_dict)
+
+                compare_stock["daily"] = compare_daily_list
+                compare_stock["limit"] = []
+                compare_stocks.append(compare_stock)
 
             return {
-                "base_stock": {
-                    "ts_code": base_info["ts_code"],
-                    "name": base_info["name"],
-                    "industry": base_info["industry"],
-                    "market": base_info["market"],
-                    "daily": base_daily.to_dict('records'),
-                    "limit": base_limit.to_dict('records')
-                },
-                "compare_stocks": compare_data
+                "base_stock": base_stock,
+                "compare_stocks": compare_stocks
             }
 
         except Exception as e:
-            print(f"Error in get_stock_comparison: {str(e)}")
+            print("Error in get_stock_comparison:", str(e))
             raise e
-        finally:
-            db.close()
