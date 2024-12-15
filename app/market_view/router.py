@@ -72,7 +72,7 @@ def compare_stocks(
     """比较两只股票的量价走势"""
     return StockCompareService.get_stock_comparison(
         request.ts_code1,
-        request.ts_code2,
+        [request.ts_code2] if request.ts_code2 != request.ts_code1 else [],
         request.start_date,
         request.end_date
     )
